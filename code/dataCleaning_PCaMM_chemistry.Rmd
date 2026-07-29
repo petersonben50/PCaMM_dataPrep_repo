@@ -310,3 +310,11 @@ write.xlsx(data_to_save,
            file = "../dataCleaned/incubation_chemistry_data.xlsx",
            asTable = TRUE)
 ```
+
+Also save it as an RData file, so that we can load it in later without having to read in the Excel file.
+
+```{r save_out_RData, message=FALSE, warning=FALSE}
+save(water_chemistry_data, sediment_Hg_data,
+     file = "../dataCleaned/incubation_chemistry_data.RData")
+```
+
