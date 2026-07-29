@@ -1,0 +1,312 @@
+---
+title: "PCaMM Data Cleaning - Chemistry"
+output: html_document
+---
+
+This is the data cleaning script for the sediment and water chemistry for the PCaMM project.
+This cleans only the data for the experimental work, and does not include the data for the preliminary studies.
+
+First we'll get our environment set up:
+
+```{r set_up_environment, message=FALSE, warning=FALSE, results='hide'} 
+rm(list=ls())
+library(openxlsx)
+library(readxl)
+library(tidyverse)
+source("prepare_metadata.R")
+rm(PW_container_info, sediment_container_info)
+```
+
+# Set up for PW water chemistry data
+
+First, we'll prepare the water chemistry data that we have for the porewater flowing through the sediment cores.
+To do this, we'll start with making the dataframe:
+
+```{r prep_dataframe, message=FALSE, warning=FALSE, results='hide'} 
+water_chemistry_data <- incubation_metadata
+PW_container_to_inc_key <- PW_metadata %>%
+  select(containerID, incubationID)
+```
+
+## Read in and prepare DOC data
+
+We'll then add the DOC data, cleaning up some of the column names and making the DOC values numeric.
+This data was pulled from the database on 2026-03-13.
+
+```{r read_in_DOC_data, message=FALSE, warning=FALSE, results='hide'}
+doc_data_raw <- read_excel("../dataRaw/20260313_PCaMM_DOC_databasepull.xlsx") %>%
+  rename_with(~ gsub(" ", "_", .x)) %>%
+  rename(containerID = DOC_Data.ContainerID) %>%
+  mutate(DOC_mgC_L = as.numeric(DOC_mgC_L)) %>%
+  filter(!is.na(DOC_mgC_L))
+```
+
+Next we'll want to add the incubationID to the DOC data, so that we can join it to the water chemistry data.
+Then, clean up.
+
+```{r clean_up_DOC_data, message=FALSE, warning=FALSE, results='hide'}
+# Add incubation ID
+doc_data <- PW_container_to_inc_key %>%
+  right_join(doc_data_raw,
+            by = "containerID") %>%
+  filter(!is.na(incubationID)) %>%
+  select(-containerID)
+# Add to water chemistry data
+water_chemistry_data <- water_chemistry_data %>%
+  left_join(doc_data,
+            by = "incubationID")
+# Clean up
+rm(doc_data_raw, doc_data)
+```
+
+## Read in and prepare sulfide data
+
+Next add the sulfide data.
+This data was not pulled from the database, but rather is stored in the original data frames generated on 2024-07-11, 2024-07-17, and 2024-08-02.
+
+Since this is a little more comple, I'm going to make a function to read in the sulfide data, and then use that function to read in the three data files and combine them into one dataframe.
+
+```{r function_to_read_in_sulfide_data, message=FALSE, warning=FALSE, results='hide' }
+# Function to read in sulfide data
+read_sulfide <- function(datafile) {
+  read_excel(datafile,
+             sheet = "Sample Measurement") %>%
+    rename_with(~ gsub(" ", "_", .x)) %>%
+    rename(sulfide_ppm = `Original_[S(-II)]_(mg/L)`,
+           containerID = Sample_ID,
+           sulfide_ppm_QA = QA_Flag) %>%
+    select(containerID, sulfide_ppm, sulfide_ppm_QA) %>%
+    filter(!is.na(containerID))
+}
+```
+
+Now call that function, add the incubationID, and join to the water chemistry data.
+
+```{r read_in_sulfide_data, message=FALSE, warning=FALSE, results='hide'}
+# Read in and combine sulfide data
+sulfide_data <- rbind(read_sulfide("../dataRaw/sulfide/20240711_Sulfide_E1.xlsx"),
+                      read_sulfide("../dataRaw/sulfide/20240717_Sulfide_E1.xlsx"),
+                      read_sulfide("../dataRaw/sulfide/20240802_Sulfide.xlsx")) %>%
+  mutate(sulfide_ppm = as.numeric(sulfide_ppm))
+# Add incubationID to sulfide
+sulfide_data <- PW_container_to_inc_key %>%
+  right_join(sulfide_data) %>%
+  filter(!is.na(incubationID)) %>%
+  select(incubationID, sulfide_ppm, sulfide_ppm_QA)
+# Add to water chemistry data
+water_chemistry_data <- water_chemistry_data %>%
+  left_join(sulfide_data,
+            by = "incubationID")
+rm(sulfide_data, read_sulfide)
+```
+
+## Read in and prepare porewater MeHg data
+
+Next read in the porewater MeHg data.
+This data is stored in the file `PCaMM_PW_MeHg.xlsx`.
+
+```{r read_in_MeHg_data, message=FALSE, warning=FALSE, results='hide' }
+mehg_data <- read_excel("../dataRaw/hg_pw/PCaMM_PW_MeHg.xlsx") %>%
+  rename(PW_MeHg_amb_ppt = `Ambient MeHg`,
+         PW_MeHg_201_ppt = `MeHg from Source_1 (201)`,
+         PW_MeHg_204_ppt = `MeHg from Source_2 (204)`
+  ) %>%
+  select(containerID, PW_MeHg_amb_ppt, PW_MeHg_201_ppt, PW_MeHg_204_ppt) %>%
+  filter(!is.na(containerID)) %>%
+  mutate(PW_MeHg_amb_ppt = as.numeric(PW_MeHg_amb_ppt),
+         PW_MeHg_201_ppt = as.numeric(PW_MeHg_201_ppt),
+         PW_MeHg_204_ppt = as.numeric(PW_MeHg_204_ppt))
+```
+
+Now add the incubationID, and join to the water chemistry data.
+
+```{r add_incubationID_to_MeHg_data, message=FALSE, warning=FALSE, results='hide'}
+# Add incubationID to MeHg
+mehg_data <- PW_container_to_inc_key %>%
+  right_join(mehg_data) %>%
+  filter(!is.na(incubationID)) %>%
+  select(incubationID, PW_MeHg_amb_ppt, PW_MeHg_201_ppt, PW_MeHg_204_ppt)
+# Add to water chemistry data
+water_chemistry_data <- water_chemistry_data %>%
+  left_join(mehg_data,
+            by = "incubationID")
+rm(mehg_data)
+# Clean up water chemistry data
+rm(PW_container_to_inc_key, PW_metadata,
+   incubation_metadata)
+```
+
+# Sediment Hg data preparation
+
+Next, we'll start on the sediment Hg data, which is the only measurements we have on the solid fraction.
+First we'll prep the dataframe:
+
+```{r prep_sediment_Hg_data, message=FALSE, warning=FALSE, results='hide'}
+sediment_Hg_data <- sediment_metadata
+sed_container_to_inc_key <- sediment_metadata %>%
+  select(containerID, incubationID)
+```
+
+## Prepare sediment MeHg data
+
+Next, read in and prepare sediment MeHg data:
+
+```{r read_in_sediment_MeHg_data, message=FALSE, warning=FALSE, results='hide'}
+temp_mehg_data <- read_excel("../dataRaw/20260728_PCaMM_ExperimentalSeds_MeHg_THg_Results.xlsx",
+                             sheet = "MeHg") %>%
+  rename(containerID = `Container ID`,
+         sed_MeHg_amb_ng_g = Ambient_MeHg_conc,
+         sed_MeHg_amb_flag = Ambient_MeHg_flag,
+         sed_MeHg_201_ng_g = `201_MeHg_conc`,
+         sed_MeHg_201_flag = `Source1_MeHg_flag`,
+         sed_MeHg_204_ng_g = `204_MeHg_conc`,
+         sed_MeHg_204_flag = `Source2_MeHg_flag`,) %>%
+  select(containerID, sed_MeHg_amb_ng_g, sed_MeHg_amb_flag,
+         sed_MeHg_201_ng_g, sed_MeHg_201_flag,
+         sed_MeHg_204_ng_g, sed_MeHg_204_flag)
+```
+
+Now, let's just see what the distribution of data looks like, both as summary statistics:
+
+```{r summary_of_sediment_MeHg_data, message=FALSE, warning=FALSE, echo=FALSE}
+summary(temp_mehg_data %>% select(-containerID, -sed_MeHg_amb_flag, -sed_MeHg_201_flag, -sed_MeHg_204_flag))
+```
+
+Also visualize as a boxplot:
+ 
+```{r plot_distribution_of_sediment_MeHg_data, message=FALSE, warning=FALSE, echo=FALSE, fig.width=5, fig.height=4}
+temp_mehg_data %>%
+  select(-sed_MeHg_amb_flag, -sed_MeHg_201_flag, -sed_MeHg_204_flag) %>%
+  pivot_longer(cols = -containerID,
+               names_to = "MeHg_type",
+               values_to = "MeHg_conc") %>%
+  filter(!is.na(MeHg_conc)) %>%
+  ggplot(aes(x = MeHg_type, y = MeHg_conc)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  scale_y_log10() +
+  labs(title = "Distribution of sediment MeHg data",
+       x = "MeHg type",
+       y = "MeHg concentration (ng/g, log scale)") +
+  # Make the x-axis labels more readable
+  scale_x_discrete(labels = c("sed_MeHg_amb_ng_g" = "Ambient",
+                              "sed_MeHg_201_ng_g" = "Source 1 (201)",
+                              "sed_MeHg_204_ng_g" = "Source 2 (204)")) +
+  theme_bw()
+```
+
+I don't see any immediate causes for concern, so let's join it to the sediment Hg data:
+
+```{r joining_MeHg_to_sediment_data, message=FALSE, warning=FALSE}
+sediment_Hg_data <- sediment_Hg_data %>%
+  left_join(temp_mehg_data,
+            by = "containerID")
+rm(temp_mehg_data)
+```
+
+## Prepare sediment THg data
+
+Next, read in and prepare sediment THg data:
+
+```{r read_in_sediment_THg_data, message=FALSE, warning=FALSE, results='hide'}
+temp_thg_data <- read_excel("../dataRaw/20260728_PCaMM_ExperimentalSeds_MeHg_THg_Results.xlsx",
+                            sheet = "THg") %>%
+  rename(containerID = `Container ID`,
+         sed_THg_amb_ng_g = Ambient_HgT_conc,
+         sed_THg_amb_flag = Ambient_HgT_flag,
+         sed_THg_201_ng_g = `201_HgT_conc`,
+         sed_THg_201_flag = `201_HgT_flag`,
+         sed_THg_204_ng_g = `204_HgT_conc`,
+         sed_THg_204_flag = `204_HgT_flag`,) %>%
+  select(containerID, sed_THg_amb_ng_g, sed_THg_amb_flag,
+         sed_THg_201_ng_g, sed_THg_201_flag,
+         sed_THg_204_ng_g, sed_THg_204_flag)
+```
+
+Now, let's just see what the distribution of data looks like, both as summary statistics:
+
+```{r summary_of_sediment_THg_data, message=FALSE, warning=FALSE, echo=FALSE}
+summary(temp_thg_data %>% select(-containerID, -sed_THg_amb_flag, -sed_THg_201_flag, -sed_THg_204_flag))
+```
+
+Also visualize as a boxplot:
+ 
+```{r plot_distribution_of_sediment_THg_data, message=FALSE, warning=FALSE, echo=FALSE, fig.width=5, fig.height=4}
+temp_thg_data %>%
+  select(-sed_THg_amb_flag, -sed_THg_201_flag, -sed_THg_204_flag) %>%
+  pivot_longer(cols = -containerID,
+               names_to = "THg_type",
+               values_to = "THg_conc") %>%
+  filter(!is.na(THg_conc)) %>%
+  ggplot(aes(x = THg_type, y = THg_conc)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  scale_y_log10() +
+  labs(title = "Distribution of sediment THg data",
+       x = "THg type",
+       y = "THg concentration (ng/g, log scale)") +
+  # Make the x-axis labels more readable
+  scale_x_discrete(labels = c("sed_THg_amb_ng_g" = "Ambient",
+                              "sed_THg_201_ng_g" = "Source 1 (201)",
+                              "sed_THg_204_ng_g" = "Source 2 (204)")) +
+  theme_bw()
+```
+
+I don't see any immediate causes for concern, so let's join it to the sediment Hg data.
+Clean up the rest as well.
+
+```{r joing_THg_to_sediment_data, message=FALSE, warning=FALSE}
+sediment_Hg_data <- sediment_Hg_data %>%
+  left_join(temp_thg_data,
+            by = "containerID")
+rm(temp_thg_data, sed_container_to_inc_key, sediment_metadata)
+```
+
+
+## Calculate % MeHg
+
+For these analyses, our main interest is in the % MeHg of the total Hg in the sediment.
+
+```{r calculate_percent_MeHg, message=FALSE, warning=FALSE}
+sediment_Hg_data <- sediment_Hg_data %>%
+  mutate(sed_percentMeHg_amb = sed_MeHg_amb_ng_g / sed_THg_amb_ng_g * 100,
+         sed_percentMeHg_201 = sed_MeHg_201_ng_g / sed_THg_201_ng_g * 100,
+         sed_percentMeHg_204 = sed_MeHg_204_ng_g / sed_THg_204_ng_g * 100)
+```
+
+Let's check on distribution of % MeHg, of course:
+
+```{r plot_distribution_of_percent_MeHg_data, message=FALSE, warning=FALSE, echo=FALSE, fig.width=5, fig.height=4}
+sediment_Hg_data %>%
+  select(sed_percentMeHg_amb, sed_percentMeHg_201, sed_percentMeHg_204) %>%
+  pivot_longer(cols = everything(),
+               names_to = "percentMeHg_type",
+               values_to = "percentMeHg") %>%
+  filter(!is.na(percentMeHg)) %>%
+  ggplot(aes(x = percentMeHg_type, y = percentMeHg)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  scale_y_log10() +
+  labs(title = "Distribution of sediment % MeHg data",
+       x = "% MeHg type",
+       y = "% MeHg (log scale)") +
+  # Make the x-axis labels more readable
+  scale_x_discrete(labels = c("sed_percentMeHg_amb" = "Ambient",
+                              "sed_percentMeHg_201" = "Source 1 (201)",
+                              "sed_percentMeHg_204" = "Source 2 (204)")) +
+  theme_bw()
+```
+
+----
+
+# Save out data
+
+Save out all data from this cleaning process, into two separate sheets in an Excel file.
+
+```{r save_out_data, message=FALSE, warning=FALSE}
+data_to_save <- list("Water_chemistry_data" = water_chemistry_data,
+                     "Sediment_Hg_data" = sediment_Hg_data)
+write.xlsx(data_to_save,
+           file = "../dataCleaned/incubation_chemistry_data.xlsx",
+           asTable = TRUE)
+```
