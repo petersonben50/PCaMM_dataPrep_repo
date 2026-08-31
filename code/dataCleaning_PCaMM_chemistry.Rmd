@@ -296,6 +296,51 @@ sediment_Hg_data %>%
                               "sed_percentMeHg_204" = "Source 2 (204)")) +
   theme_bw()
 ```
+----
+
+# Original PW constituents
+
+We also generated some data on the original PW constituents, which we can add to a new dataframe.
+
+```{r add_starting_doc_data, message=FALSE, warning=FALSE, results='hide'}
+# Set up to siteID to treatment vector
+treatment_location_vector <- c("Ambient_TKL873_PW", "Ambient_WCBP1P2_PW", "Ambient_Situkuyok_PW")
+names(treatment_location_vector) <- c("N_TKL_873", "WCBP1.2", "SRBP1")
+# Order to use for treatment visualization.
+treatment_order <- c('TKL873_PW', 'Situkuyok_PW', 'WCBP1P2_PW', 'Permafrost_DOM') 
+
+# This is the original DOC and SUVA254 values for the site porewater
+site_doc <- read_xlsx("../dataRaw/Alaska_DataRelease_V2.4_forBenPeterson_06132025.xlsx",
+                      sheet = "Table3_Water") %>%
+  filter(SiteID %in% names(treatment_location_vector),
+         year(sample_collection_date_mm_dd_yy) == 2023,
+         month(sample_collection_date_mm_dd_yy) == 8,
+         sample_depth_def == "BLWSED") %>%
+   group_by(SiteID) %>%
+   summarize(original_doc_mgC_L = mean(round(as.numeric(DOC_mgC_per_l), 2),
+                                       na.rm = TRUE),
+             original_SUVA254 = mean(round(as.numeric(suva_254nm_l_per_mgc_per_m), 2),
+                                  na.rm = TRUE)) %>%
+  # Generate a treatment column based on the SiteID but don't include names as attributes
+  mutate(treatment = unname(treatment_location_vector[SiteID])) %>%
+  select(treatment, original_doc_mgC_L, original_SUVA254) %>%
+  # remove attributes from treatment
+  mutate(treatment = as.character(treatment))
+
+# Read in permafrost DOC and SUVA254 values
+permafrost_doc <- read_xlsx("../dataRaw/PCaMM_PW_DOC.xlsx") %>%
+  rename(containerID = `Container ID`,
+         original_doc_mgC_L = `DOC mgC L`,
+         original_SUVA254 = SUVA254) %>%
+  filter(containerID == "PCaMM_PRMFST_020") %>%
+  mutate(treatment = "Permafrost_DOM") %>%
+  select(treatment, original_doc_mgC_L, original_SUVA254)
+
+# Combine the permafrost and site DOC data
+starting_chem <- rbind(permafrost_doc, site_doc)
+rm(permafrost_doc, site_doc)
+```
+
 
 ----
 
@@ -305,7 +350,8 @@ Save out all data from this cleaning process, into two separate sheets in an Exc
 
 ```{r save_out_data, message=FALSE, warning=FALSE}
 data_to_save <- list("Water_chemistry_data" = water_chemistry_data,
-                     "Sediment_Hg_data" = sediment_Hg_data)
+                     "Sediment_Hg_data" = sediment_Hg_data,
+                     "Starting_PW_chemistry" = starting_chem)
 write.xlsx(data_to_save,
            file = "../dataCleaned/incubation_chemistry_data.xlsx",
            asTable = TRUE)
@@ -314,7 +360,7 @@ write.xlsx(data_to_save,
 Also save it as an RData file, so that we can load it in later without having to read in the Excel file.
 
 ```{r save_out_RData, message=FALSE, warning=FALSE}
-save(water_chemistry_data, sediment_Hg_data,
+save(water_chemistry_data, sediment_Hg_data, starting_chem,
      file = "../dataCleaned/incubation_chemistry_data.RData")
 ```
 
