@@ -100,7 +100,42 @@ water_chemistry_data <- water_chemistry_data %>%
 rm(sulfide_data, read_sulfide)
 ```
 
-## Read in and prepare porewater MeHg data
+## Read in and prepare porewater Hg data
+
+Next read in the porewater THg data.
+This data is stored in the file `20260929_MerxTiCAP_WCHM_results.xlsx`.
+
+```{r read_in_THg_data, message=FALSE, warning=FALSE, results='hide' }
+thg_data <- rbind(read_excel("../dataRaw/hg_pw/20260910_MerxTiCAP_WCHM_results.xlsx") %>%
+                    rename(PW_THg_amb_ppt = `Ambient_HgT_conc`,
+                           PW_THg_201_ppt = `Source1_HgT_conc`,
+                           PW_THg_204_ppt = `Source2_HgT_conc`) %>%
+                    select(containerID, PW_THg_amb_ppt, PW_THg_201_ppt, PW_THg_204_ppt),
+                  read_excel("../dataRaw/hg_pw/20260929_MerxTiCAP_WCHM_results.xlsx") %>%
+                    rename(PW_THg_amb_ppt = `Ambient_HgT_conc`,
+                           PW_THg_201_ppt = `Source1_HgT_conc`,
+                           PW_THg_204_ppt = `Source2_HgT_conc`) %>%
+                    select(containerID, PW_THg_amb_ppt, PW_THg_201_ppt, PW_THg_204_ppt)) %>%
+  filter(!is.na(containerID)) %>%
+  mutate(PW_THg_amb_ppt = as.numeric(PW_THg_amb_ppt),
+         PW_THg_201_ppt = as.numeric(PW_THg_201_ppt),
+         PW_THg_204_ppt = as.numeric(PW_THg_204_ppt))
+```
+
+Now add the incubationID, and join to the water chemistry data.
+
+```{r add_incubationID_to_THg_data, message=FALSE, warning=FALSE, results='hide'}
+# Add incubationID to MeHg
+thg_data <- PW_container_to_inc_key %>%
+  right_join(thg_data) %>%
+  filter(!is.na(incubationID)) %>%
+  select(incubationID, PW_THg_amb_ppt, PW_THg_201_ppt, PW_THg_204_ppt)
+# Add to water chemistry data
+water_chemistry_data <- water_chemistry_data %>%
+  left_join(thg_data,
+            by = "incubationID")
+rm(thg_data)
+```
 
 Next read in the porewater MeHg data.
 This data is stored in the file `PCaMM_PW_MeHg.xlsx`.
@@ -134,6 +169,15 @@ rm(mehg_data)
 # Clean up water chemistry data
 rm(PW_container_to_inc_key, PW_metadata,
    incubation_metadata)
+```
+
+Now calculate percent MeHg in PW for each isotope source.
+
+```{r calculate_percent_PW_MeHg, message=FALSE, warning=FALSE, results='hide'}
+water_chemistry_data <- water_chemistry_data %>%
+  mutate(PW_percentMeHg_amb = PW_MeHg_amb_ppt / PW_THg_amb_ppt * 100,
+         PW_percentMeHg_201 = PW_MeHg_201_ppt / PW_THg_201_ppt * 100,
+         PW_percentMeHg_204 = PW_MeHg_204_ppt / PW_THg_204_ppt * 100)
 ```
 
 # Sediment Hg data preparation
