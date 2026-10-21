@@ -64,7 +64,7 @@ rm(doc_data_raw, doc_data)
 Next add the sulfide data.
 This data was not pulled from the database, but rather is stored in the original data frames generated on 2024-07-11, 2024-07-17, and 2024-08-02.
 
-Since this is a little more comple, I'm going to make a function to read in the sulfide data, and then use that function to read in the three data files and combine them into one dataframe.
+Since this is a little more complex, I'm going to make a function to read in the sulfide data, and then use that function to read in the three data files and combine them into one dataframe.
 
 ```{r function_to_read_in_sulfide_data, message=FALSE, warning=FALSE, results='hide' }
 # Function to read in sulfide data
@@ -98,6 +98,34 @@ water_chemistry_data <- water_chemistry_data %>%
   left_join(sulfide_data,
             by = "incubationID")
 rm(sulfide_data, read_sulfide)
+```
+
+## Read in and prepare methane data
+
+Next add the sulfide data. This was sent to me by Ania on 2026-10-20, as a finalized single sheet.
+
+```{r read_in_methane_data, message=FALSE, warning=FALSE, results='hide' }
+methane_data <- read_excel("../dataRaw/20261020_Dissolved Methane_ITE_PCaMM.xlsx") %>%
+  filter(grepl("PCaMM_MEC_", ContainerID)) %>%
+  rename(methane_µM = `Dissolved CH4 Concentration (µM)`,
+         containerID = ContainerID) %>%
+  select(containerID, methane_µM) %>%
+  mutate(methane_µM = as.numeric(methane_µM))
+```
+
+Now add the incubationID, and join to the water chemistry data.
+
+```{r add_methane_data_to_spreadsheet, message=FALSE, warning=FALSE, results='hide'}
+# Add incubationID to MeHg
+methane_data <- PW_container_to_inc_key %>%
+  right_join(methane_data) %>%
+  filter(!is.na(incubationID)) %>%
+  select(incubationID, methane_µM)
+# Add to water chemistry data
+water_chemistry_data <- water_chemistry_data %>%
+  left_join(methane_data,
+            by = "incubationID")
+rm(methane_data)
 ```
 
 ## Read in and prepare porewater Hg data
