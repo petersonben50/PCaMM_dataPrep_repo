@@ -88,6 +88,11 @@ sulfide_data <- rbind(read_sulfide("../dataRaw/sulfide/20240711_Sulfide_E1.xlsx"
                       read_sulfide("../dataRaw/sulfide/20240717_Sulfide_E1.xlsx"),
                       read_sulfide("../dataRaw/sulfide/20240802_Sulfide.xlsx")) %>%
   mutate(sulfide_ppm = as.numeric(sulfide_ppm))
+# Manually looking at this, anything below 0.1 ppm is listed as <DL.
+# Thus, we'll call 0.1 ppm the DL and set anything below that to 0.1.
+sulfide_data <- sulfide_data %>%
+  # Set sulfide_ppm values below 0.1 to 0.1:
+  mutate(sulfide_ppm = if_else(sulfide_ppm < 0.1, 0.1, sulfide_ppm))
 # Add incubationID to sulfide
 sulfide_data <- PW_container_to_inc_key %>%
   right_join(sulfide_data) %>%
